@@ -17,7 +17,7 @@ type ServiceInstanceCreate struct {
 	Name          string                        `json:"name"`
 	Type          string                        `json:"type"`
 	Tags          []string                      `json:"tags"`
-	Credentials   map[string]string             `json:"credentials"`
+	Credentials   map[string]any                `json:"credentials"`
 	Relationships *ServiceInstanceRelationships `json:"relationships"`
 	Metadata      Metadata                      `json:"metadata"`
 }

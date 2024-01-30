@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -50,7 +51,7 @@ func NewServiceInstanceRepo(
 type CreateServiceInstanceMessage struct {
 	Name        string
 	SpaceGUID   string
-	Credentials map[string]string
+	Credentials map[string]any
 	Type        string
 	Tags        []string
 	Labels      map[string]string
@@ -116,10 +117,26 @@ func (r *ServiceInstanceRepo) CreateServiceInstance(ctx context.Context, authInf
 
 	secretObj := cfServiceInstanceToSecret(cfServiceInstance)
 	_, err = controllerutil.CreateOrPatch(ctx, userClient, &secretObj, func() error {
-		secretObj.StringData = message.Credentials
 		if secretObj.StringData == nil {
 			secretObj.StringData = map[string]string{}
 		}
+
+		metadata := map[string]string{}
+		for k, v := range message.Credentials {
+			credentialStr, credentialType, err := toString(v)
+			if err != nil {
+				return fmt.Errorf("credential with key %q is invalid json", k)
+			}
+			secretObj.StringData[k] = credentialStr
+			metadata[k] = credentialType
+		}
+
+		metadataBytes, err := json.Marshal(metadata)
+		if err != nil {
+			return fmt.Errorf("failed to marshal secret metadata: %w", err)
+		}
+		secretObj.StringData[".metadata"] = string(metadataBytes)
+
 		createSecretTypeFields(&secretObj)
 
 		return nil
@@ -129,6 +146,19 @@ func (r *ServiceInstanceRepo) CreateServiceInstance(ctx context.Context, authInf
 	}
 
 	return cfServiceInstanceToServiceInstanceRecord(cfServiceInstance), nil
+}
+
+func toString(value any) (string, string, error) {
+	if str, ok := value.(string); ok {
+		return str, "string", nil
+	}
+
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return "", "", nil
+	}
+
+	return string(bytes), "object", err
 }
 
 func (r *ServiceInstanceRepo) PatchServiceInstance(ctx context.Context, authInfo authorization.Info, message PatchServiceInstanceMessage) (ServiceInstanceRecord, error) {

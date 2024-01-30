@@ -87,7 +87,8 @@ func buildSingleServiceEnv(ctx context.Context, k8sClient client.Client, service
 		serviceLabel = *serviceInstance.Spec.ServiceLabel
 	}
 
-	return fromServiceBinding(serviceBinding, serviceInstance, secret, serviceLabel), serviceLabel, nil
+	serviceDetails, err := fromServiceBinding(serviceBinding, serviceInstance, secret, serviceLabel)
+	return serviceDetails, serviceLabel, err
 }
 
 func fromServiceBinding(
@@ -95,7 +96,7 @@ func fromServiceBinding(
 	serviceInstance korifiv1alpha1.CFServiceInstance,
 	serviceBindingSecret corev1.Secret,
 	serviceLabel string,
-) ServiceDetails {
+) (ServiceDetails, error) {
 	var serviceName string
 	var bindingName *string
 
@@ -112,6 +113,10 @@ func fromServiceBinding(
 		tags = []string{}
 	}
 
+	credentials, err := mapFromSecret(serviceBindingSecret)
+	if err != nil {
+		return ServiceDetails{}, fmt.Errorf("failed to parse service credentials: %w", err)
+	}
 	return ServiceDetails{
 		Label:          serviceLabel,
 		Name:           serviceName,
@@ -120,16 +125,50 @@ func fromServiceBinding(
 		InstanceName:   serviceInstance.Spec.DisplayName,
 		BindingGUID:    serviceBinding.Name,
 		BindingName:    bindingName,
-		Credentials:    mapFromSecret(serviceBindingSecret),
+		Credentials:    credentials,
 		SyslogDrainURL: nil,
 		VolumeMounts:   []string{},
-	}
+	}, nil
 }
 
-func mapFromSecret(secret corev1.Secret) map[string]string {
-	convertedMap := make(map[string]string)
-	for k, v := range secret.Data {
-		convertedMap[k] = string(v)
+func mapFromSecret(secret corev1.Secret) (map[string]any, error) {
+	metadata, err := getSecretMetadata(secret)
+	if err != nil {
+		return nil, err
 	}
-	return convertedMap
+
+	convertedMap := make(map[string]any)
+	for k, v := range secret.Data {
+		if !isObject(k, metadata) {
+			convertedMap[k] = string(v)
+			continue
+		}
+
+		var value any
+		err := json.Unmarshal(v, &value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal value for key %q", k)
+		}
+		convertedMap[k] = value
+
+	}
+	return convertedMap, nil
+}
+
+func getSecretMetadata(secret corev1.Secret) (map[string]string, error) {
+	metadataBytes, ok := secret.Data[".metadata"]
+	if !ok {
+		return map[string]string{}, nil
+	}
+
+	metadata := map[string]string{}
+	err := json.Unmarshal(metadataBytes, &metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse credentials metadata: %w", err)
+	}
+	return metadata, nil
+}
+
+func isObject(key string, metadata map[string]string) bool {
+	return metadata[key] == "object"
 }
