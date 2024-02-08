@@ -71,17 +71,6 @@ spec:
           status:
             description: CFServiceInstanceStatus defines the observed state of CFServiceInstance
             properties:
-              binding:
-                description: A reference to the Secret containing the credentials
-                  (same as spec.secretName). This is required to conform to the Kubernetes
-                  Service Bindings spec
-                properties:
-                  name:
-                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                      TODO: Add other useful fields. apiVersion, kind, uid?'
-                    type: string
-                type: object
-                x-kubernetes-map-type: atomic
               conditions:
                 items:
                   description: "Condition contains details for one aspect of the current
@@ -150,6 +139,16 @@ spec:
                   - type
                   type: object
                 type: array
+              credentials:
+                description: The secret that contains user provided services credentials.
+                  Does not make sense for managed services.
+                properties:
+                  name:
+                    description: 'Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                      TODO: Add other useful fields. apiVersion, kind, uid?'
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
               observedGeneration:
                 description: ObservedGeneration captures the latest generation of
                   the CFServiceInstance that has been reconciled

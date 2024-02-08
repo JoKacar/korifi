@@ -53,16 +53,15 @@ type InstanceType string
 
 // CFServiceInstanceStatus defines the observed state of CFServiceInstance
 type CFServiceInstanceStatus struct {
-	// A reference to the Secret containing the credentials (same as spec.secretName).
-	// This is required to conform to the Kubernetes Service Bindings spec
-	// +optional
-	Binding corev1.LocalObjectReference `json:"binding"`
-
 	//+kubebuilder:validation:Optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// ObservedGeneration captures the latest generation of the CFServiceInstance that has been reconciled
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// The secret that contains user provided services credentials. Does not make sense for managed services.
+	//+kubebuilder:validation:Optional
+	Credentials corev1.LocalObjectReference `json:"credentials"`
 }
 
 //+kubebuilder:object:root=true

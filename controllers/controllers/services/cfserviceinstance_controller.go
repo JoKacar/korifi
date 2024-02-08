@@ -18,21 +18,24 @@ package services
 
 import (
 	"context"
-	"time"
+	"encoding/json"
+	"strings"
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
+	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // CFServiceInstanceReconciler reconciles a CFServiceInstance object
@@ -53,7 +56,42 @@ func NewCFServiceInstanceReconciler(
 
 func (r *CFServiceInstanceReconciler) SetupWithManager(mgr ctrl.Manager) *builder.Builder {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&korifiv1alpha1.CFServiceInstance{})
+		For(&korifiv1alpha1.CFServiceInstance{}).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueSecretRequests),
+		)
+}
+
+func (r *CFServiceInstanceReconciler) enqueueSecretRequests(ctx context.Context, o client.Object) []reconcile.Request {
+	var requests []reconcile.Request
+
+	secret, ok := o.(*corev1.Secret)
+	if !ok {
+		return []reconcile.Request{}
+	}
+
+	var serviceInstances korifiv1alpha1.CFServiceInstanceList
+	err := r.k8sClient.List(
+		ctx,
+		&serviceInstances,
+		client.InNamespace(secret.Namespace),
+		client.MatchingFields{shared.IndexServiceInstanceBySecretName: secret.Name},
+	)
+	if err != nil {
+		return []reconcile.Request{}
+	}
+
+	for _, inst := range serviceInstances.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      inst.Name,
+				Namespace: inst.Namespace,
+			},
+		})
+	}
+
+	return requests
 }
 
 //+kubebuilder:rbac:groups=korifi.cloudfoundry.org,resources=cfserviceinstances,verbs=get;list;watch;create;update;patch;delete
@@ -66,56 +104,89 @@ func (r *CFServiceInstanceReconciler) ReconcileResource(ctx context.Context, cfS
 	cfServiceInstance.Status.ObservedGeneration = cfServiceInstance.Generation
 	log.V(1).Info("set observed generation", "generation", cfServiceInstance.Status.ObservedGeneration)
 
-	secret := new(corev1.Secret)
-	err := r.k8sClient.Get(ctx, types.NamespacedName{Name: cfServiceInstance.Spec.SecretName, Namespace: cfServiceInstance.Namespace}, secret)
+	err := r.reconcileCredentials(ctx, cfServiceInstance)
 	if err != nil {
-		if apierrors.IsNotFound(err) {
-			cfServiceInstance.Status = bindSecretUnavailableStatus(cfServiceInstance, "SecretNotFound", "Binding secret does not exist")
-			return ctrl.Result{RequeueAfter: 2 * time.Second}, nil
-		}
-
-		log.Info("failed to get secret", "reason", err)
-		cfServiceInstance.Status = bindSecretUnavailableStatus(cfServiceInstance, "UnknownError", "Error occurred while fetching secret: "+err.Error())
 		return ctrl.Result{}, err
 	}
 
-	cfServiceInstance.Status = bindSecretAvailableStatus(cfServiceInstance)
 	return ctrl.Result{}, nil
 }
 
-func bindSecretAvailableStatus(cfServiceInstance *korifiv1alpha1.CFServiceInstance) korifiv1alpha1.CFServiceInstanceStatus {
-	status := korifiv1alpha1.CFServiceInstanceStatus{
-		Binding: corev1.LocalObjectReference{
-			Name: cfServiceInstance.Spec.SecretName,
-		},
-		Conditions:         cfServiceInstance.Status.Conditions,
-		ObservedGeneration: cfServiceInstance.Status.ObservedGeneration,
+func (r *CFServiceInstanceReconciler) reconcileCredentials(ctx context.Context, serviceInstance *korifiv1alpha1.CFServiceInstance) error {
+	log := logr.FromContextOrDiscard(ctx).WithValues("service-instance-name", serviceInstance.Name)
+
+	if serviceInstance.Status.Credentials.Name != "" {
+		return nil
 	}
 
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:               BindingSecretAvailableCondition,
-		Status:             metav1.ConditionTrue,
-		Reason:             "SecretFound",
-		ObservedGeneration: cfServiceInstance.Generation,
-	})
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceInstance.Spec.SecretName,
+			Namespace: serviceInstance.Namespace,
+		},
+	}
 
-	return status
+	err := r.k8sClient.Get(ctx, client.ObjectKeyFromObject(secret), secret)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	if err != nil {
+		log.Error(err, "service instance secret is not available")
+		return err
+	}
+
+	if !strings.HasPrefix(string(secret.Type), "servicebinding.io/") {
+		log.Info("applying credentials secret", "secret", secret.Name)
+		serviceInstance.Status.Credentials.Name = secret.Name
+		return nil
+	}
+
+	migratedSecret, err := r.migrateLegacySecret(ctx, serviceInstance, secret)
+	if err != nil {
+		log.Error(err, "failed to migrate legacy service instance secret")
+		return err
+	}
+
+	serviceInstance.Status.Credentials.Name = migratedSecret.Name
+
+	return nil
 }
 
-func bindSecretUnavailableStatus(cfServiceInstance *korifiv1alpha1.CFServiceInstance, reason, message string) korifiv1alpha1.CFServiceInstanceStatus {
-	status := korifiv1alpha1.CFServiceInstanceStatus{
-		Binding:            corev1.LocalObjectReference{},
-		Conditions:         cfServiceInstance.Status.Conditions,
-		ObservedGeneration: cfServiceInstance.Status.ObservedGeneration,
+func (r *CFServiceInstanceReconciler) migrateLegacySecret(ctx context.Context, owner metav1.Object, legacySecret *corev1.Secret) (*corev1.Secret, error) {
+	log := logr.FromContextOrDiscard(ctx)
+
+	log.Info("migrating legacy secret", "legacy-secret-name", legacySecret.Name)
+	migratedSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      owner.GetName() + "-migrated",
+			Namespace: legacySecret.Namespace,
+		},
 	}
 
-	meta.SetStatusCondition(&status.Conditions, metav1.Condition{
-		Type:               BindingSecretAvailableCondition,
-		Status:             metav1.ConditionFalse,
-		Reason:             reason,
-		Message:            message,
-		ObservedGeneration: cfServiceInstance.Generation,
-	})
+	_, err := controllerutil.CreateOrPatch(ctx, r.k8sClient, migratedSecret, func() error {
+		if migratedSecret.Data == nil {
+			migratedSecret.Data = map[string][]byte{}
+		}
 
-	return status
+		data := map[string]any{}
+		for k, v := range legacySecret.Data {
+			data[k] = string(v)
+		}
+
+		dataBytes, err := json.Marshal(data)
+		if err != nil {
+			log.Error(err, "failed to marshal backup secret data")
+			return err
+		}
+
+		migratedSecret.Data["data"] = dataBytes
+		return controllerutil.SetOwnerReference(owner, migratedSecret, r.scheme)
+	})
+	if err != nil {
+		log.Error(err, "failed to create migrated secret")
+		return nil, err
+	}
+
+	return migratedSecret, nil
 }

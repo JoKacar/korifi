@@ -85,7 +85,7 @@ var _ = Describe("ServiceInstanceCreate", func() {
 			Name: "service-instance-name",
 			Type: "user-provided",
 			Tags: []string{"foo", "bar"},
-			Credentials: map[string]string{
+			Credentials: map[string]any{
 				"username": "bob",
 				"password": "float",
 			},

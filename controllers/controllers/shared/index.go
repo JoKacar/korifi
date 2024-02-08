@@ -14,13 +14,13 @@ import (
 )
 
 const (
-	IndexRouteDestinationAppName           = "destinationAppName"
-	IndexRouteDomainQualifiedName          = "domainQualifiedName"
-	IndexServiceBindingAppGUID             = "serviceBindingAppGUID"
-	IndexServiceBindingServiceInstanceGUID = "serviceBindingServiceInstanceGUID"
-	IndexAppTasks                          = "appTasks"
-	IndexSpaceNamespaceName                = "spaceNamespace"
-	IndexOrgNamespaceName                  = "orgNamespace"
+	IndexRouteDestinationAppName     = "destinationAppName"
+	IndexRouteDomainQualifiedName    = "domainQualifiedName"
+	IndexServiceBindingAppGUID       = "serviceBindingAppGUID"
+	IndexAppTasks                    = "appTasks"
+	IndexSpaceNamespaceName          = "spaceNamespace"
+	IndexOrgNamespaceName            = "orgNamespace"
+	IndexServiceInstanceBySecretName = "IndexServiceInstanceBySecretName"
 
 	StatusConditionReady = "Ready"
 )
@@ -41,7 +41,7 @@ func SetupIndexWithManager(mgr manager.Manager) error {
 		return err
 	}
 
-	err = mgr.GetFieldIndexer().IndexField(context.Background(), new(korifiv1alpha1.CFServiceBinding), IndexServiceBindingServiceInstanceGUID, serviceBindingServiceInstanceGUIDIndexFn)
+	err = mgr.GetFieldIndexer().IndexField(context.Background(), new(korifiv1alpha1.CFServiceInstance), IndexServiceInstanceBySecretName, serviceInstanceBySecretNameFn)
 	if err != nil {
 		return err
 	}
@@ -92,9 +92,9 @@ func serviceBindingAppGUIDIndexFn(rawObj client.Object) []string {
 	return []string{serviceBinding.Spec.AppRef.Name}
 }
 
-func serviceBindingServiceInstanceGUIDIndexFn(rawObj client.Object) []string {
-	serviceBinding := rawObj.(*korifiv1alpha1.CFServiceBinding)
-	return []string{serviceBinding.Spec.Service.Name}
+func serviceInstanceBySecretNameFn(rawObj client.Object) []string {
+	serviceInstance := rawObj.(*korifiv1alpha1.CFServiceInstance)
+	return []string{serviceInstance.Spec.SecretName}
 }
 
 // GetConditionOrSetAsUnknown is a helper function that retrieves the value of the provided conditionType, like

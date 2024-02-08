@@ -65,7 +65,6 @@ var _ = Describe("CFServiceInstance", func() {
 			serviceInstanceNamespacedName := client.ObjectKeyFromObject(cfServiceInstance)
 			g.Expect(adminClient.Get(context.Background(), serviceInstanceNamespacedName, updatedCFServiceInstance)).To(Succeed())
 
-			g.Expect(updatedCFServiceInstance.Status.Binding.Name).To(Equal("secret-name"))
 			g.Expect(updatedCFServiceInstance.Status.Conditions).To(ContainElement(MatchFields(IgnoreExtras, Fields{
 				"Type":    Equal("BindingSecretAvailable"),
 				"Status":  Equal(metav1.ConditionTrue),
@@ -95,7 +94,6 @@ var _ = Describe("CFServiceInstance", func() {
 				serviceInstanceNamespacedName := client.ObjectKeyFromObject(cfServiceInstance)
 				g.Expect(adminClient.Get(context.Background(), serviceInstanceNamespacedName, updatedCFServiceInstance)).To(Succeed())
 
-				g.Expect(updatedCFServiceInstance.Status.Binding).To(BeZero())
 				g.Expect(updatedCFServiceInstance.Status.Conditions).To(ContainElement(MatchFields(IgnoreExtras, Fields{
 					"Type":    Equal("BindingSecretAvailable"),
 					"Status":  Equal(metav1.ConditionFalse),
@@ -121,7 +119,6 @@ var _ = Describe("CFServiceInstance", func() {
 					serviceInstanceNamespacedName := client.ObjectKeyFromObject(cfServiceInstance)
 					g.Expect(adminClient.Get(context.Background(), serviceInstanceNamespacedName, updatedCFServiceInstance)).To(Succeed())
 
-					g.Expect(updatedCFServiceInstance.Status.Binding.Name).To(Equal("other-secret-name"))
 					g.Expect(updatedCFServiceInstance.Status.Conditions).To(ContainElement(MatchFields(IgnoreExtras, Fields{
 						"Type":    Equal("BindingSecretAvailable"),
 						"Status":  Equal(metav1.ConditionTrue),

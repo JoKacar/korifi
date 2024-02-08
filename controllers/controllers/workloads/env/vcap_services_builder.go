@@ -3,6 +3,7 @@ package env
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
@@ -77,25 +78,30 @@ func buildSingleServiceEnv(ctx context.Context, k8sClient client.Client, service
 		return ServiceDetails{}, "", fmt.Errorf("error fetching CFServiceInstance: %w", err)
 	}
 
+	if serviceInstance.Status.Credentials.Name == "" {
+		return ServiceDetails{}, "", errors.New("service instance credentials secret not available")
+	}
+
 	secret := corev1.Secret{}
-	err = k8sClient.Get(ctx, types.NamespacedName{Namespace: serviceBinding.Namespace, Name: serviceBinding.Status.Binding.Name}, &secret)
+	err = k8sClient.Get(ctx, types.NamespacedName{Namespace: serviceInstance.Namespace, Name: serviceInstance.Status.Credentials.Name}, &secret)
 	if err != nil {
-		return ServiceDetails{}, "", fmt.Errorf("error fetching CFServiceBinding Secret: %w", err)
+		return ServiceDetails{}, "", fmt.Errorf("error fetching CFServiceBinding credentials secret: %w", err)
 	}
 
 	if serviceInstance.Spec.ServiceLabel != nil && *serviceInstance.Spec.ServiceLabel != "" {
 		serviceLabel = *serviceInstance.Spec.ServiceLabel
 	}
 
-	return fromServiceBinding(serviceBinding, serviceInstance, secret, serviceLabel), serviceLabel, nil
+	serviceDetails, err := fromServiceBinding(serviceBinding, serviceInstance, secret, serviceLabel)
+	return serviceDetails, serviceLabel, err
 }
 
 func fromServiceBinding(
 	serviceBinding korifiv1alpha1.CFServiceBinding,
 	serviceInstance korifiv1alpha1.CFServiceInstance,
-	serviceBindingSecret corev1.Secret,
+	credentialsSecret corev1.Secret,
 	serviceLabel string,
-) ServiceDetails {
+) (ServiceDetails, error) {
 	var serviceName string
 	var bindingName *string
 
@@ -112,6 +118,12 @@ func fromServiceBinding(
 		tags = []string{}
 	}
 
+	credentials := map[string]any{}
+	err := json.Unmarshal(credentialsSecret.Data["data"], &credentials)
+	if err != nil {
+		return ServiceDetails{}, fmt.Errorf("failed to unmarshal secret data for secret %q", credentialsSecret.Name)
+	}
+
 	return ServiceDetails{
 		Label:          serviceLabel,
 		Name:           serviceName,
@@ -120,16 +132,8 @@ func fromServiceBinding(
 		InstanceName:   serviceInstance.Spec.DisplayName,
 		BindingGUID:    serviceBinding.Name,
 		BindingName:    bindingName,
-		Credentials:    mapFromSecret(serviceBindingSecret),
+		Credentials:    credentials,
 		SyslogDrainURL: nil,
 		VolumeMounts:   []string{},
-	}
-}
-
-func mapFromSecret(secret corev1.Secret) map[string]string {
-	convertedMap := make(map[string]string)
-	for k, v := range secret.Data {
-		convertedMap[k] = string(v)
-	}
-	return convertedMap
+	}, nil
 }

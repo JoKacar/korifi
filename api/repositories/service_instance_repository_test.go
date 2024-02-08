@@ -47,7 +47,7 @@ var _ = Describe("ServiceInstanceRepository", func() {
 		var (
 			serviceInstanceCreateMessage repositories.CreateServiceInstanceMessage
 			serviceInstanceTags          []string
-			serviceInstanceCredentials   map[string]string
+			serviceInstanceCredentials   map[string]any
 
 			createdServiceInstanceRecord repositories.ServiceInstanceRecord
 			createErr                    error
@@ -55,7 +55,7 @@ var _ = Describe("ServiceInstanceRepository", func() {
 
 		BeforeEach(func() {
 			serviceInstanceTags = []string{"foo", "bar"}
-			serviceInstanceCredentials = map[string]string{
+			serviceInstanceCredentials = map[string]any{
 				"cred-one": "val-one",
 				"cred-two": "val-two",
 			}
@@ -113,7 +113,7 @@ var _ = Describe("ServiceInstanceRepository", func() {
 			When("ServiceInstance credentials are provided", func() {
 				When("the instance credentials have a user-specified type", func() {
 					BeforeEach(func() {
-						serviceInstanceCredentials = map[string]string{
+						serviceInstanceCredentials = map[string]any{
 							"cred-one": "val-one",
 							"cred-two": "val-two",
 							"type":     "mysql",
@@ -658,7 +658,7 @@ var _ = Describe("ServiceInstanceRepository", func() {
 	})
 })
 
-func initializeServiceInstanceCreateMessage(serviceInstanceName string, spaceGUID string, tags []string, credentials map[string]string) repositories.CreateServiceInstanceMessage {
+func initializeServiceInstanceCreateMessage(serviceInstanceName string, spaceGUID string, tags []string, credentials map[string]any) repositories.CreateServiceInstanceMessage {
 	return repositories.CreateServiceInstanceMessage{
 		Name:        serviceInstanceName,
 		SpaceGUID:   spaceGUID,

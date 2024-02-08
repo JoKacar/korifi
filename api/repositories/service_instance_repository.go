@@ -2,6 +2,8 @@ package repositories
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -50,7 +52,7 @@ func NewServiceInstanceRepo(
 type CreateServiceInstanceMessage struct {
 	Name        string
 	SpaceGUID   string
-	Credentials map[string]string
+	Credentials map[string]any
 	Type        string
 	Tags        []string
 	Labels      map[string]string
@@ -115,12 +117,15 @@ func (r *ServiceInstanceRepo) CreateServiceInstance(ctx context.Context, authInf
 	}
 
 	secretObj := cfServiceInstanceToSecret(cfServiceInstance)
+	credentialBytes, err := json.Marshal(message.Credentials)
+	if err != nil {
+		return ServiceInstanceRecord{}, errors.New("failed to marshal credentials for service instance")
+	}
 	_, err = controllerutil.CreateOrPatch(ctx, userClient, &secretObj, func() error {
-		secretObj.StringData = message.Credentials
-		if secretObj.StringData == nil {
-			secretObj.StringData = map[string]string{}
+		if secretObj.Data == nil {
+			secretObj.Data = map[string][]byte{}
 		}
-		createSecretTypeFields(&secretObj)
+		secretObj.Data["data"] = credentialBytes
 
 		return nil
 	})
@@ -333,14 +338,4 @@ func returnServiceInstanceList(serviceInstanceList []korifiv1alpha1.CFServiceIns
 		serviceInstanceRecords = append(serviceInstanceRecords, cfServiceInstanceToServiceInstanceRecord(serviceInstance))
 	}
 	return serviceInstanceRecords
-}
-
-func createSecretTypeFields(secret *corev1.Secret) {
-	userSpecifiedType, typeSpecified := secret.StringData["type"]
-	if typeSpecified {
-		secret.Type = corev1.SecretType(serviceBindingSecretTypePrefix + userSpecifiedType)
-	} else {
-		secret.StringData["type"] = korifiv1alpha1.UserProvidedType
-		secret.Type = serviceBindingSecretTypePrefix + korifiv1alpha1.UserProvidedType
-	}
 }
