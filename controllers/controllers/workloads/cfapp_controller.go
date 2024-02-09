@@ -8,6 +8,7 @@ import (
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/env"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
 	"github.com/go-logr/logr"
@@ -25,20 +26,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type EnvValueBuilder interface {
-	BuildEnvValue(context.Context, *korifiv1alpha1.CFApp) (map[string]string, error)
-}
-
 // CFAppReconciler reconciles a CFApp object
 type CFAppReconciler struct {
 	log                       logr.Logger
 	k8sClient                 client.Client
 	scheme                    *runtime.Scheme
-	vcapServicesEnvBuilder    EnvValueBuilder
-	vcapApplicationEnvBuilder EnvValueBuilder
+	vcapServicesEnvBuilder    env.EnvValueBuilder
+	vcapApplicationEnvBuilder env.EnvValueBuilder
 }
 
-func NewCFAppReconciler(k8sClient client.Client, scheme *runtime.Scheme, log logr.Logger, vcapServicesBuilder, vcapApplicationBuilder EnvValueBuilder) *k8s.PatchingReconciler[korifiv1alpha1.CFApp, *korifiv1alpha1.CFApp] {
+func NewCFAppReconciler(k8sClient client.Client, scheme *runtime.Scheme, log logr.Logger, vcapServicesBuilder, vcapApplicationBuilder env.EnvValueBuilder) *k8s.PatchingReconciler[korifiv1alpha1.CFApp, *korifiv1alpha1.CFApp] {
 	appReconciler := CFAppReconciler{
 		log:                       log,
 		k8sClient:                 k8sClient,
@@ -55,10 +52,6 @@ func (r *CFAppReconciler) SetupWithManager(mgr ctrl.Manager) *builder.Builder {
 		Watches(
 			&korifiv1alpha1.CFBuild{},
 			handler.EnqueueRequestsFromMapFunc(buildToApp),
-		).
-		Watches(
-			&korifiv1alpha1.CFServiceBinding{},
-			handler.EnqueueRequestsFromMapFunc(serviceBindingToApp),
 		)
 }
 
@@ -72,22 +65,6 @@ func buildToApp(ctx context.Context, o client.Object) []reconcile.Request {
 		{
 			NamespacedName: types.NamespacedName{
 				Name:      cfBuild.Spec.AppRef.Name,
-				Namespace: o.GetNamespace(),
-			},
-		},
-	}
-}
-
-func serviceBindingToApp(ctx context.Context, o client.Object) []reconcile.Request {
-	serviceBinding, ok := o.(*korifiv1alpha1.CFServiceBinding)
-	if !ok {
-		return nil
-	}
-
-	return []reconcile.Request{
-		{
-			NamespacedName: types.NamespacedName{
-				Name:      serviceBinding.Spec.AppRef.Name,
 				Namespace: o.GetNamespace(),
 			},
 		},
@@ -118,19 +95,34 @@ func (r *CFAppReconciler) ReconcileResource(ctx context.Context, cfApp *korifiv1
 	}
 
 	secretName := cfApp.Name + "-vcap-application"
-	err := r.reconcileVCAPSecret(ctx, cfApp, secretName, r.vcapApplicationEnvBuilder)
+	err := env.BuildSecret(ctx,
+		r.k8sClient,
+		corev1.ObjectReference{
+			Namespace: cfApp.Namespace,
+			Name:      cfApp.Name,
+		},
+		r.vcapApplicationEnvBuilder,
+		secretName,
+	)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 	cfApp.Status.VCAPApplicationSecretName = secretName
 
-	secretName = cfApp.Name + "-vcap-services"
-	err = r.reconcileVCAPSecret(ctx, cfApp, secretName, r.vcapServicesEnvBuilder)
+	vcapServicesSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cfApp.Name + "-vcap-services",
+			Namespace: cfApp.Namespace,
+		},
+	}
+	_, err = controllerutil.CreateOrPatch(ctx, r.k8sClient, vcapServicesSecret, func() error {
+		return controllerutil.SetOwnerReference(cfApp, vcapServicesSecret, r.scheme)
+	})
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	cfApp.Status.VCAPServicesSecretName = secretName
+	cfApp.Status.VCAPServicesSecretName = vcapServicesSecret.Name
 
 	if cfApp.Spec.CurrentDropletRef.Name == "" {
 		meta.SetStatusCondition(&cfApp.Status.Conditions, metav1.Condition{
@@ -392,38 +384,4 @@ func (r *CFAppReconciler) getCFRoutes(ctx context.Context, cfAppGUID string, cfA
 	}
 
 	return foundRoutes.Items, nil
-}
-
-func (r *CFAppReconciler) reconcileVCAPSecret(
-	ctx context.Context,
-	cfApp *korifiv1alpha1.CFApp,
-	secretName string,
-	envBuilder EnvValueBuilder,
-) error {
-	log := logr.FromContextOrDiscard(ctx).WithName("reconcileVCAPSecret").WithValues("secretName", secretName)
-
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      secretName,
-			Namespace: cfApp.Namespace,
-		},
-	}
-
-	envValue, err := envBuilder.BuildEnvValue(ctx, cfApp)
-	if err != nil {
-		log.Info("failed to build env value", "reason", err)
-		return err
-	}
-
-	_, err = controllerutil.CreateOrPatch(ctx, r.k8sClient, secret, func() error {
-		secret.StringData = envValue
-
-		return controllerutil.SetControllerReference(cfApp, secret, r.scheme)
-	})
-	if err != nil {
-		log.Info("unable to create or patch Secret", "reason", err)
-		return err
-	}
-
-	return nil
 }

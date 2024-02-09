@@ -26,7 +26,10 @@ var _ = Describe("VCAP_APPLICATION env value builder", func() {
 		)
 
 		JustBeforeEach(func() {
-			vcapApplication, buildVCAPApplicationEnvValueErr = builder.BuildEnvValue(ctx, cfApp)
+			vcapApplication, buildVCAPApplicationEnvValueErr = builder.BuildEnvValue(ctx, v1.ObjectReference{
+				Name:      cfApp.Name,
+				Namespace: cfApp.Namespace,
+			})
 		})
 
 		It("sets the basic fields", func() {

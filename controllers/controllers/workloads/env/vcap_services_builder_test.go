@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -140,7 +141,10 @@ var _ = Describe("Builder", func() {
 		)
 
 		JustBeforeEach(func() {
-			vcapServices, buildVCAPServicesEnvValueErr = builder.BuildEnvValue(ctx, cfApp)
+			vcapServices, buildVCAPServicesEnvValueErr = builder.BuildEnvValue(ctx, v1.ObjectReference{
+				Name:      cfApp.Name,
+				Namespace: cfApp.Namespace,
+			})
 		})
 
 		It("returns the service info", func() {

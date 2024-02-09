@@ -7,6 +7,8 @@ import (
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -23,7 +25,16 @@ func NewVCAPApplicationEnvValueBuilder(k8sClient client.Client, extraValues map[
 	}
 }
 
-func (b *VCAPApplicationEnvValueBuilder) BuildEnvValue(ctx context.Context, cfApp *korifiv1alpha1.CFApp) (map[string]string, error) {
+func (b *VCAPApplicationEnvValueBuilder) BuildEnvValue(ctx context.Context, cfAppRef corev1.ObjectReference) (map[string]string, error) {
+	cfApp := &korifiv1alpha1.CFApp{}
+	err := b.k8sClient.Get(ctx, types.NamespacedName{
+		Name:      cfAppRef.Name,
+		Namespace: cfAppRef.Namespace,
+	}, cfApp)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cfApp: %w", err)
+	}
+
 	space, err := b.getSpaceFromNamespace(ctx, cfApp.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("failed retrieving space for CFApp: %w", err)

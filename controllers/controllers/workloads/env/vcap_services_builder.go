@@ -23,11 +23,11 @@ func NewVCAPServicesEnvValueBuilder(k8sClient client.Client) *VCAPServicesEnvVal
 	return &VCAPServicesEnvValueBuilder{k8sClient: k8sClient}
 }
 
-func (b *VCAPServicesEnvValueBuilder) BuildEnvValue(ctx context.Context, cfApp *korifiv1alpha1.CFApp) (map[string]string, error) {
+func (b *VCAPServicesEnvValueBuilder) BuildEnvValue(ctx context.Context, appRef corev1.ObjectReference) (map[string]string, error) {
 	serviceBindings := &korifiv1alpha1.CFServiceBindingList{}
 	err := b.k8sClient.List(ctx, serviceBindings,
-		client.InNamespace(cfApp.Namespace),
-		client.MatchingFields{shared.IndexServiceBindingAppGUID: cfApp.Name},
+		client.InNamespace(appRef.Namespace),
+		client.MatchingFields{shared.IndexServiceBindingAppGUID: appRef.Name},
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error listing CFServiceBindings: %w", err)

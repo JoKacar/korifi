@@ -23,6 +23,7 @@ import (
 	"time"
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
+	"code.cloudfoundry.org/korifi/controllers/controllers/workloads/env"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
 	"github.com/go-logr/logr"
@@ -134,6 +135,19 @@ func (r *CFServiceBindingReconciler) ReconcileResource(ctx context.Context, cfSe
 		Message:            "",
 		ObservedGeneration: cfServiceBinding.Generation,
 	})
+
+	if err := env.BuildSecret(ctx,
+		r.k8sClient,
+		corev1.ObjectReference{
+			Namespace: cfServiceBinding.Namespace,
+			Name:      cfServiceBinding.Spec.AppRef.Name,
+		},
+		env.NewVCAPServicesEnvValueBuilder(r.k8sClient),
+		cfApp.Status.VCAPServicesSecretName,
+	); err != nil {
+		log.Error(err, "failed to reconcile VCAP_SERVICES secret")
+		return ctrl.Result{}, err
+	}
 
 	actualSBServiceBinding := servicebindingv1beta1.ServiceBinding{
 		ObjectMeta: metav1.ObjectMeta{
