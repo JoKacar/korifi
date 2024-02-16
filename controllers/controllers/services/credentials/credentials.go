@@ -24,14 +24,13 @@ func GetBindingSecretType(credentialsSecret *corev1.Secret) (corev1.SecretType, 
 	return corev1.SecretType(ServiceBindingSecretTypePrefix + korifiv1alpha1.UserProvidedType), nil
 }
 
-func GetBindingSecretData(credentialsSecret *corev1.Secret) (map[string]string, error) {
+func GetBindingSecretData(credentialsSecret *corev1.Secret) (map[string][]byte, error) {
 	credentials, err := getCredentials(credentialsSecret)
-	secretData := map[string]string{}
-
+	secretData := map[string][]byte{}
 	for k, v := range credentials {
 		valueString, ok := v.(string)
 		if ok {
-			secretData[k] = valueString
+			secretData[k] = []byte(valueString)
 			continue
 		}
 
@@ -39,7 +38,7 @@ func GetBindingSecretData(credentialsSecret *corev1.Secret) (map[string]string, 
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal secret data value at key %q: %w", k, err)
 		}
-		secretData[k] = string(valueBytes)
+		secretData[k] = valueBytes
 	}
 
 	return secretData, err

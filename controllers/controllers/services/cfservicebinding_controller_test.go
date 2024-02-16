@@ -20,7 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var _ = FDescribe("CFServiceBinding", func() {
+var _ = Describe("CFServiceBinding", func() {
 	var (
 		namespace            *corev1.Namespace
 		cfAppGUID            string
@@ -253,38 +253,33 @@ var _ = FDescribe("CFServiceBinding", func() {
 		})
 	})
 
-	When("the service instance changes", func() {
+	When("the credentials change", func() {
 		JustBeforeEach(func() {
 			Eventually(func(g Gomega) {
 				g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(cfServiceBinding), cfServiceBinding)).To(Succeed())
 				g.Expect(cfServiceBinding.Status.Binding.Name).To(Equal(cfServiceBinding.Name))
 			}).Should(Succeed())
+			Expect(k8s.Patch(ctx, adminClient, credentialsSecret, func() {
+				credentialsSecret.Data = map[string][]byte{
+					korifiv1alpha1.CredentialsSecretKey: []byte(`{"type":"my-type","provider": "your-provider"}`),
+				}
+			})).To(Succeed())
 		})
 
-		When("the credentials type changes", func() {
-			JustBeforeEach(func() {
-				Expect(k8s.Patch(ctx, adminClient, credentialsSecret, func() {
-					credentialsSecret.Data = map[string][]byte{
-						korifiv1alpha1.CredentialsSecretKey: []byte(`"type":"your-type"`),
-					}
-				})).To(Succeed())
-			})
-
-			FIt("updates the binding secret type by recreating the secret", func() {
-				Eventually(func(g Gomega) {
-					g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(cfServiceBinding), cfServiceBinding)).To(Succeed())
-					g.Expect(cfServiceBinding.Status.Binding.Name).To(Equal(cfServiceBinding.Name))
-
-					bindingSecret := &corev1.Secret{
-						ObjectMeta: metav1.ObjectMeta{
-							Namespace: cfServiceBinding.Namespace,
-							Name:      cfServiceBinding.Name,
-						},
-					}
-					g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(bindingSecret), bindingSecret)).To(Succeed())
-					g.Expect(bindingSecret.Type).To(Equal(services.ServiceBindingSecretTypePrefix + "your-type"))
-				}).Should(Succeed())
-			})
+		It("updates the binding secret", func() {
+			Eventually(func(g Gomega) {
+				bindingSecret := &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: cfServiceBinding.Namespace,
+						Name:      cfServiceBinding.Name,
+					},
+				}
+				g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(bindingSecret), bindingSecret)).To(Succeed())
+				g.Expect(bindingSecret.Data).To(MatchAllKeys(Keys{
+					"type":     Equal([]byte("my-type")),
+					"provider": Equal([]byte("your-provider")),
+				}))
+			}).Should(Succeed())
 		})
 	})
 })

@@ -85,7 +85,7 @@ var _ = Describe("Credentials", func() {
 	})
 
 	Describe("GetBindingSecretData", func() {
-		var bindingSecretData map[string]string
+		var bindingSecretData map[string][]byte
 
 		JustBeforeEach(func() {
 			bindingSecretData, err = credentials.GetBindingSecretData(credentialsSecret)
@@ -94,7 +94,7 @@ var _ = Describe("Credentials", func() {
 		It("converts the credentials into a flat strings map", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(bindingSecretData).To(MatchAllKeys(Keys{
-				"foo": Equal(`{"bar":"baz"}`),
+				"foo": Equal([]byte(`{"bar":"baz"}`)),
 			}))
 		})
 

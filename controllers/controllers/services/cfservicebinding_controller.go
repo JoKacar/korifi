@@ -24,6 +24,7 @@ import (
 
 	korifiv1alpha1 "code.cloudfoundry.org/korifi/controllers/api/v1alpha1"
 	"code.cloudfoundry.org/korifi/controllers/controllers/services/credentials"
+	"code.cloudfoundry.org/korifi/controllers/controllers/shared"
 	"code.cloudfoundry.org/korifi/tools/k8s"
 
 	"github.com/go-logr/logr"
@@ -38,6 +39,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -66,7 +69,35 @@ func NewCFServiceBindingReconciler(
 
 func (r *CFServiceBindingReconciler) SetupWithManager(mgr ctrl.Manager) *builder.Builder {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&korifiv1alpha1.CFServiceBinding{})
+		For(&korifiv1alpha1.CFServiceBinding{}).
+		Watches(
+			&korifiv1alpha1.CFServiceInstance{},
+			handler.EnqueueRequestsFromMapFunc(r.serviceInstanceToServiceBindings),
+		)
+}
+
+func (r *CFServiceBindingReconciler) serviceInstanceToServiceBindings(ctx context.Context, o client.Object) []reconcile.Request {
+	serviceInstance := o.(*korifiv1alpha1.CFServiceInstance)
+
+	serviceBindings := korifiv1alpha1.CFServiceBindingList{}
+	if err := r.k8sClient.List(ctx, &serviceBindings,
+		client.InNamespace(serviceInstance.Namespace),
+		client.MatchingFields{shared.IndexServiceBindingServiceInstanceGUID: serviceInstance.Name},
+	); err != nil {
+		return []reconcile.Request{}
+	}
+
+	requests := []reconcile.Request{}
+	for _, sb := range serviceBindings.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      sb.Name,
+				Namespace: sb.Namespace,
+			},
+		})
+	}
+
+	return requests
 }
 
 //+kubebuilder:rbac:groups=korifi.cloudfoundry.org,resources=cfservicebindings,verbs=get;list;watch;create;update;patch;delete
@@ -197,7 +228,7 @@ func (r *CFServiceBindingReconciler) reconcileCredentials(ctx context.Context, c
 		if err != nil {
 			return err
 		}
-		bindingSecret.StringData, err = credentials.GetBindingSecretData(credentialsSecret)
+		bindingSecret.Data, err = credentials.GetBindingSecretData(credentialsSecret)
 		if err != nil {
 			return err
 		}
