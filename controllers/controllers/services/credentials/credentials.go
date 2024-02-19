@@ -26,6 +26,10 @@ func GetBindingSecretType(credentialsSecret *corev1.Secret) (corev1.SecretType, 
 
 func GetBindingSecretData(credentialsSecret *corev1.Secret) (map[string][]byte, error) {
 	credentials, err := getCredentials(credentialsSecret)
+	if err != nil {
+		return nil, err
+	}
+
 	secretData := map[string][]byte{}
 	for k, v := range credentials {
 		valueString, ok := v.(string)
@@ -41,7 +45,7 @@ func GetBindingSecretData(credentialsSecret *corev1.Secret) (map[string][]byte, 
 		secretData[k] = valueBytes
 	}
 
-	return secretData, err
+	return secretData, nil
 }
 
 func getCredentials(credentialsSecret *corev1.Secret) (map[string]any, error) {

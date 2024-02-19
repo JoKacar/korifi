@@ -34,6 +34,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -118,6 +119,13 @@ func (r *CFServiceInstanceReconciler) ReconcileResource(ctx context.Context, cfS
 		}
 		return ctrl.Result{}, err
 	}
+
+	err = k8s.Patch(ctx, r.k8sClient, credentialsSecret, func() {
+		err := controllerutil.SetOwnerReference(cfServiceInstance, credentialsSecret, r.scheme)
+		if err != nil {
+			log.Error(err, "failed to set owner reference to credentials secret", "secret-name", credentialsSecret.Name)
+		}
+	})
 
 	log.V(1).Info("credentials secret", "name", credentialsSecret.Name, "version", credentialsSecret.ResourceVersion)
 	meta.SetStatusCondition(&cfServiceInstance.Status.Conditions, metav1.Condition{

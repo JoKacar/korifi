@@ -86,6 +86,22 @@ var _ = Describe("CFServiceInstance", func() {
 		}).Should(Succeed())
 	})
 
+	It("sets ownership to the credentials secret", func() {
+		Eventually(func(g Gomega) {
+			credentialsSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: cfServiceInstance.Namespace,
+					Name:      cfServiceInstance.Spec.SecretName,
+				},
+			}
+			g.Expect(adminClient.Get(ctx, client.ObjectKeyFromObject(credentialsSecret), credentialsSecret)).To(Succeed())
+			g.Expect(credentialsSecret.OwnerReferences).To(ContainElement(MatchFields(IgnoreExtras, Fields{
+				"Kind": Equal("CFServiceInstance"),
+				"Name": Equal(cfServiceInstance.Name),
+			})))
+		}).Should(Succeed())
+	})
+
 	When("the credentials secret changes", func() {
 		var secretVersion string
 

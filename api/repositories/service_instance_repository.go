@@ -17,7 +17,6 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -184,7 +183,6 @@ func (r *ServiceInstanceRepo) applyCredentialsSecret(
 		secret.Data = map[string][]byte{
 			korifiv1alpha1.CredentialsSecretKey: credentialBytes,
 		}
-		return controllerutil.SetOwnerReference(&cfServiceInstance, secret, scheme.Scheme)
 	})
 	return err
 }
