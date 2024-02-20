@@ -183,6 +183,8 @@ func (r *ServiceInstanceRepo) applyCredentialsSecret(
 		secret.Data = map[string][]byte{
 			korifiv1alpha1.CredentialsSecretKey: credentialBytes,
 		}
+
+		return nil
 	})
 	return err
 }
